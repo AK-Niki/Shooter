@@ -45,140 +45,51 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
-
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import com.example.shooter.ui.theme.model.Bullet
+import com.example.shooter.ui.theme.model.Enemy
+import com.example.shooter.ui.theme.utils.SoundManager
+import com.example.shooter.ui.theme.viewmodel.GameViewModel
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 
 @Composable
 fun GameScreen(navController: NavController) {
     val context = LocalContext.current
+    val viewModel = remember { GameViewModel(context) }
     val scope = rememberCoroutineScope()
+
+    val playerX = viewModel.playerX
+    val bullets = viewModel.bullets
+    val enemies = viewModel.enemies
+    val score by viewModel.score.collectAsState()
+    val hp by viewModel.hp.collectAsState()
+    val isGameOver by viewModel.isGameOver.collectAsState()
 
     var screenWidth by remember { mutableStateOf(0) }
     var screenHeight by remember { mutableStateOf(0) }
 
-    val soundPool = remember { SoundPool.Builder().setMaxStreams(5).build() }
-    val fireSound = remember { soundPool.load(context, R.raw.fire, 1) }
-    val hitSound = remember { soundPool.load(context, R.raw.hit, 1) }
-    val explosionSound = remember { soundPool.load(context, R.raw.explosion, 1) }
-    val bonusSound = remember { soundPool.load(context, R.raw.bonus, 1) }
-
-    var score by remember { mutableStateOf(0) }
-    var hp by remember { mutableStateOf(3) }
-    var isGameOver by remember { mutableStateOf(false) }
-
-    val playerX = remember { Animatable(0f) }
-    val bullets = remember { mutableStateListOf<Bullet>() }
-    val enemies = remember { mutableStateListOf<Enemy>() }
-
-    val playerWidth = 64f
-    val playerHeight = 64f
-
-    var enemySpawnDelay by remember { mutableStateOf(1200L) }
-
     LaunchedEffect(screenWidth) {
-        playerX.snapTo((screenWidth - playerWidth) / 2f)
+        viewModel.init(screenWidth)
     }
 
     LaunchedEffect(true) {
-        while (!isGameOver) {
-            delay(enemySpawnDelay)
-            val enemyType = Random.nextInt(3)
-            val drawable = when (enemyType) {
-                0 -> R.drawable.enemy
-                1 -> R.drawable.enemy2
-                else -> R.drawable.boss
-            }
-            val health = when (enemyType) {
-                0 -> 1
-                1 -> 2
-                else -> 3
-            }
-            val speed = if (enemyType == 2) 2f else 5f
-
-            enemies.add(
-                Enemy(
-                    x = Random.nextFloat() * (screenWidth - 64f),
-                    y = Animatable(0f),
-                    drawable = drawable,
-                    health = health,
-                    speed = speed
-                )
-            )
-        }
-    }
-
-    LaunchedEffect(true) {
-        while (!isGameOver) {
-            withFrameMillis {
-                bullets.forEach { it.y += it.speed }
-                bullets.removeAll { it.y < 0 }
-
-                enemies.forEach {
-                    scope.launch {
-                        it.y.animateTo(it.y.value + it.speed)
-                    }
-                }
-
-                val hitBullets = mutableSetOf<Bullet>()
-
-                for (bullet in bullets) {
-                    val bulletRect = Rect(
-                        offset = Offset(bullet.x, bullet.y),
-                        size = Size(8f, 16f)
-                    )
-
-                    val hitEnemy = enemies.firstOrNull { enemy ->
-                        val enemyRect = Rect(
-                            offset = Offset(enemy.x, enemy.y.value),
-                            size = Size(64f, 64f)
-                        )
-                        bulletRect.overlaps(enemyRect.inflate(24f))
-                    }
-
-                    if (hitEnemy != null) {
-                        hitEnemy.health -= 1
-                        hitBullets.add(bullet)
-                        soundPool.play(hitSound, 1f, 1f, 0, 0, 1f)
-
-                        if (hitEnemy.health <= 0) {
-                            enemies.remove(hitEnemy)
-                            score++
-                            if (score % 100 == 0) {
-                                hp++
-                                soundPool.play(bonusSound, 1f, 1f, 0, 0, 1f)
-                            }
-                            if (score % 200 == 0) {
-                                enemySpawnDelay = (enemySpawnDelay * 0.9).toLong().coerceAtLeast(300L)
-                            }
-                        }
-                    }
-                }
-
-                bullets.removeAll(hitBullets)
-
-                enemies.firstOrNull { it.y.value > screenHeight }?.let {
-                    hp--
-                    enemies.clear()
-                    if (hp <= 0) {
-                        isGameOver = true
-                        navController.navigate("gameover")
-                    }
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(true) {
-        while (!isGameOver) {
-            delay(300L)
-            bullets.add(
-                Bullet(
-                    x = playerX.value + (playerWidth / 2),
-                    y = screenHeight - playerHeight - 20f,
-                    speed = -20f
-                )
-            )
-            soundPool.play(fireSound, 1f, 1f, 0, 0, 1f)
-        }
+        viewModel.startSpawningEnemies()
+        viewModel.startShooting(screenHeight)
+        viewModel.handleCollisions(
+            screenHeight = screenHeight,
+            onGameOver = { navController.navigate("gameover") }
+        )
     }
 
     Box(
@@ -191,13 +102,12 @@ fun GameScreen(navController: NavController) {
             .pointerInput(Unit) {
                 detectHorizontalDragGestures { _, dragAmount ->
                     scope.launch {
-                        val newX = (playerX.value + dragAmount).coerceIn(0f, screenWidth - playerWidth)
-                        playerX.snapTo(newX)
+                        viewModel.movePlayer(dragAmount, screenWidth)
                     }
                 }
             }
     ) {
-        // Фон пола
+        // Фон
         Image(
             painter = painterResource(id = R.drawable.floor),
             contentDescription = null,
@@ -206,21 +116,21 @@ fun GameScreen(navController: NavController) {
         )
 
         // Враги
-        enemies.forEach { e ->
+        enemies.forEach { enemy ->
             Image(
-                painter = painterResource(id = e.drawable),
+                painter = painterResource(enemy.drawable),
                 contentDescription = null,
                 modifier = Modifier
-                    .offset { IntOffset(e.x.toInt(), e.y.value.toInt()) }
+                    .offset { IntOffset(enemy.x.toInt(), enemy.y.value.toInt()) }
                     .size(64.dp)
             )
         }
 
         // Пули
-        bullets.forEach { b ->
+        bullets.forEach { bullet ->
             Box(
-                Modifier
-                    .offset { IntOffset(b.x.toInt(), b.y.toInt()) }
+                modifier = Modifier
+                    .offset { IntOffset(bullet.x.toInt(), bullet.y.toInt()) }
                     .size(8.dp, 16.dp)
                     .background(Color.Yellow)
             )
@@ -231,33 +141,17 @@ fun GameScreen(navController: NavController) {
             painter = painterResource(id = R.drawable.player),
             contentDescription = null,
             modifier = Modifier
-                .offset { IntOffset(playerX.value.toInt(), screenHeight - playerHeight.toInt()) }
+                .offset { IntOffset(playerX.value.toInt(), screenHeight - 64) }
                 .size(64.dp)
         )
 
         // HUD
-        Column(Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Text("HP: $hp", color = Color.White)
             Text("Score: $score", color = Color.White)
         }
     }
 }
-
-
-data class Bullet(
-    var x: Float,
-    var y: Float,
-    var speed: Float
-)
-
-data class Enemy(
-    val x: Float,
-    val y: Animatable<Float, AnimationVector1D>,
-    val drawable: Int,
-    var health: Int,
-    val speed: Float = 5f
-)
-
 
 
 
