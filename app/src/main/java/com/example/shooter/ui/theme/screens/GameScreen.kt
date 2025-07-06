@@ -38,6 +38,13 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.max
 
 
 @Composable
@@ -45,18 +52,15 @@ fun GameScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Размер экрана
     var screenWidth by remember { mutableStateOf(0) }
     var screenHeight by remember { mutableStateOf(0) }
 
-    // Звуки
     val soundPool = remember { SoundPool.Builder().setMaxStreams(5).build() }
     val fireSound = remember { soundPool.load(context, R.raw.fire, 1) }
     val hitSound = remember { soundPool.load(context, R.raw.hit, 1) }
     val explosionSound = remember { soundPool.load(context, R.raw.explosion, 1) }
     val bonusSound = remember { soundPool.load(context, R.raw.bonus, 1) }
 
-    // Игровое состояние
     var score by remember { mutableStateOf(0) }
     var hp by remember { mutableStateOf(3) }
     var isGameOver by remember { mutableStateOf(false) }
@@ -68,33 +72,40 @@ fun GameScreen(navController: NavController) {
     val playerWidth = 64f
     val playerHeight = 64f
 
-    // Начальная позиция игрока
+    var enemySpawnDelay by remember { mutableStateOf(1200L) }
+
     LaunchedEffect(screenWidth) {
         playerX.snapTo((screenWidth - playerWidth) / 2f)
     }
 
-    // Спавн врагов
     LaunchedEffect(true) {
         while (!isGameOver) {
-            delay(1200L)
+            delay(enemySpawnDelay)
             val enemyType = Random.nextInt(3)
             val drawable = when (enemyType) {
                 0 -> R.drawable.enemy
                 1 -> R.drawable.enemy2
                 else -> R.drawable.boss
             }
+            val health = when (enemyType) {
+                0 -> 1
+                1 -> 2
+                else -> 3
+            }
+            val speed = if (enemyType == 2) 2f else 5f
+
             enemies.add(
                 Enemy(
                     x = Random.nextFloat() * (screenWidth - 64f),
                     y = Animatable(0f),
                     drawable = drawable,
-                    speed = if (enemyType == 2) 2f else 5f
+                    health = health,
+                    speed = speed
                 )
             )
         }
     }
 
-    // Обработка пуль, врагов, коллизий
     LaunchedEffect(true) {
         while (!isGameOver) {
             withFrameMillis {
@@ -107,31 +118,41 @@ fun GameScreen(navController: NavController) {
                     }
                 }
 
-                val hitEnemies = mutableSetOf<Enemy>()
                 val hitBullets = mutableSetOf<Bullet>()
 
-                for (enemy in enemies) {
-                    val enemyRect = Rect(
-                        offset = Offset(enemy.x, enemy.y.value),
-                        size = Size(64f, 64f)
+                for (bullet in bullets) {
+                    val bulletRect = Rect(
+                        offset = Offset(bullet.x, bullet.y),
+                        size = Size(8f, 16f)
                     )
 
-                    for (bullet in bullets) {
-                        val bulletRect = Rect(
-                            offset = Offset(bullet.x, bullet.y),
-                            size = Size(8f, 16f)
+                    val hitEnemy = enemies.firstOrNull { enemy ->
+                        val enemyRect = Rect(
+                            offset = Offset(enemy.x, enemy.y.value),
+                            size = Size(64f, 64f)
                         )
-                        if (bulletRect.overlaps(enemyRect.inflate(24f))) {
-                            hitEnemies.add(enemy)
-                            hitBullets.add(bullet)
+                        bulletRect.overlaps(enemyRect.inflate(24f))
+                    }
+
+                    if (hitEnemy != null) {
+                        hitEnemy.health -= 1
+                        hitBullets.add(bullet)
+                        soundPool.play(hitSound, 1f, 1f, 0, 0, 1f)
+
+                        if (hitEnemy.health <= 0) {
+                            enemies.remove(hitEnemy)
                             score++
-                            soundPool.play(hitSound, 1f, 1f, 0, 0, 1f)
-                            break
+                            if (score % 100 == 0) {
+                                hp++
+                                soundPool.play(bonusSound, 1f, 1f, 0, 0, 1f)
+                            }
+                            if (score % 200 == 0) {
+                                enemySpawnDelay = (enemySpawnDelay * 0.9).toLong().coerceAtLeast(300L)
+                            }
                         }
                     }
                 }
 
-                enemies.removeAll(hitEnemies)
                 bullets.removeAll(hitBullets)
 
                 enemies.firstOrNull { it.y.value > screenHeight }?.let {
@@ -146,7 +167,6 @@ fun GameScreen(navController: NavController) {
         }
     }
 
-    // Стрельба
     LaunchedEffect(true) {
         while (!isGameOver) {
             delay(300L)
@@ -161,7 +181,6 @@ fun GameScreen(navController: NavController) {
         }
     }
 
-    // Отображение игры
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -178,7 +197,7 @@ fun GameScreen(navController: NavController) {
                 }
             }
     ) {
-        // Фон-пол
+        // Фон пола
         Image(
             painter = painterResource(id = R.drawable.floor),
             contentDescription = null,
@@ -189,7 +208,7 @@ fun GameScreen(navController: NavController) {
         // Враги
         enemies.forEach { e ->
             Image(
-                painter = painterResource(e.drawable),
+                painter = painterResource(id = e.drawable),
                 contentDescription = null,
                 modifier = Modifier
                     .offset { IntOffset(e.x.toInt(), e.y.value.toInt()) }
@@ -209,7 +228,7 @@ fun GameScreen(navController: NavController) {
 
         // Игрок
         Image(
-            painter = painterResource(R.drawable.player),
+            painter = painterResource(id = R.drawable.player),
             contentDescription = null,
             modifier = Modifier
                 .offset { IntOffset(playerX.value.toInt(), screenHeight - playerHeight.toInt()) }
@@ -217,16 +236,13 @@ fun GameScreen(navController: NavController) {
         )
 
         // HUD
-        Column(
-            Modifier.padding(16.dp)
-        ) {
+        Column(Modifier.padding(16.dp)) {
             Text("HP: $hp", color = Color.White)
             Text("Score: $score", color = Color.White)
         }
     }
 }
 
-// Модели
 
 data class Bullet(
     var x: Float,
@@ -238,8 +254,10 @@ data class Enemy(
     val x: Float,
     val y: Animatable<Float, AnimationVector1D>,
     val drawable: Int,
+    var health: Int,
     val speed: Float = 5f
 )
+
 
 
 
