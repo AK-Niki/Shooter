@@ -7,7 +7,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.shooter.ui.theme.screens.GameOverScreen
 import com.example.shooter.ui.theme.screens.GameScreen
 import com.example.shooter.ui.theme.screens.HistoryScreen
-import com.example.shooter.ui.screens.MenuScreen
+import com.example.shooter.ui.theme.screens.MenuScreen
 
 @Composable
 fun AppNavigation() {

@@ -1,4 +1,4 @@
-package com.example.shooter.ui.screens
+package com.example.shooter.ui.theme.screens
 
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.*
@@ -32,7 +32,7 @@ fun MenuScreen(navController: NavController) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Содержимое поверх
+        // Содержимое
         Column(
             modifier = Modifier
                 .fillMaxSize()

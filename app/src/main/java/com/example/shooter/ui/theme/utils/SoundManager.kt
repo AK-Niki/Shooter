@@ -4,9 +4,6 @@ package com.example.shooter.ui.theme.utils
 import android.content.Context
 import android.media.SoundPool
 import com.example.shooter.R
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
 class SoundManager(context: Context) {
     private val soundPool = SoundPool.Builder().setMaxStreams(5).build()
